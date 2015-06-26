@@ -1,3 +1,3 @@
 # Spatial-and-Temporal-GGM
 
-test
+Matlab code for the manuscript "On Joint Estimation of Gaussian Graphical Models for Spatial and Temporal Data". Please refer to "examples.m" for guildlines.
