@@ -1,6 +1,6 @@
-function [ obj ] = getBNSst( dataA, l, delta, gA, opts)
+function [ obj ] = getBNSst( dataA, l, delta, gA, numpool, opts)
 %%
-if nargin < 5
+if nargin < 6
     opts = [];
     opts.niter = 20000;
     opts.br = 10000;
@@ -11,7 +11,6 @@ if nargin < 5
     opts.etaT = 0;
     opts.fixetaS = 0;
     opts.fixetaT = 0;
-    opts.shrink = 1;
     opts.parallel_t=0;
     opts.parallel_s=0;
     opts.parallel_line=0;
@@ -25,9 +24,6 @@ for t = 1:nt
     for br = 1:nbr
         data = dataA{t, br};
         [nrepli, ~] = size(data);
-        if nrepli < d && opts.shrink==1
-            l = l*nrepli/d;
-        end
         if nrepli<=2     
         else
             for y = 1:d
@@ -38,26 +34,20 @@ for t = 1:nt
     end
 end
 %%
-AXX = zeros(d-1, d-1, d, nt, nbr);
-AXY = zeros(d-1, d, nt, nbr);
+dd = zeros(d, d, nt, nbr);
 nrepliA = zeros(nt, nbr);
 for t = 1:nt 
     for br = 1:nbr
         data = dataA{t, br};
         [nrepliA(t, br), ~] = size(data);
         if nrepliA(t, br) > 2
-            for y = 1:d
-                Y = data(:,y);
-                X = data(:,[1:(y-1) (y+1):d]);
-                AXX(:,:,y, t, br) = X'*X;
-                AXY(:,y, t, br) = X'*Y;
-            end
+            dd(:,:,t, br) = data'*data;
         end
     end
 end
 %%
 if gA(1) == -1
-    gA = binornd(1, 0.5, d, d, nt, nbr);
+    gA = binornd(1, 0.2, d, d, nt, nbr);
     %make it symmetric
     for t = 1:nt 
         for br = 1:nbr
@@ -84,6 +74,9 @@ sA = ones(d, nt, nbr);
 shapeA = repmat( (nu+nrepliA)/2, 1, 1, d);
 shapeA = permute(shapeA, [3, 1, 2]);
 scaleA = sA;
+if opts.parallel_t == 1 || opts.parallel_s == 1 || opts.parallel_line==1
+    parpool(numpool);
+end
 for iter = 1:opts.niter
     if mod(iter, 200)==0
         fprintf('  completed %d%% \r',round(iter/opts.niter*100));
@@ -91,6 +84,7 @@ for iter = 1:opts.niter
     %%update beta
     if opts.parallel_t==1
         parfor t = 1:nt 
+            dd1 = squeeze(dd(:,:,t,:));
             for br = 1:nbr
                 data = dataA{t, br};
                 if nrepliA(t, br) > 2
@@ -103,10 +97,10 @@ for iter = 1:opts.niter
                         s = sA(y, t, br);
                         lab = (delta^2).^abs(g-1);
                         dr = bse.^2 .* lab;
-                        A = AXX(:,:,y, t, br); 
+                        A = dd1([1:(y-1) (y+1):d],[1:(y-1) (y+1):d],br); 
                         A((1:d:((d-1)^2))) = A((1:d:((d-1)^2))) + s^2./dr;
                         R = chol(A);
-                        z = (R')\AXY(:, y, t, br);
+                        z = (R')\(X'*Y);
                         bnulltmp = R\(s.*randn(d-1, 1)+z);
                         bnulltmp = [bnulltmp(1:(y-1)); 0 ;bnulltmp(y:(d-1))];
                         bAnull(y, :, t, br)= bnulltmp;
@@ -116,9 +110,10 @@ for iter = 1:opts.niter
             end
         end
     elseif opts.parallel_s==1
-        for t = 1:nt 
-            parfor br = 1:nbr
+        parfor br = 1:nbr 
+            for t = 1:nt
                 data = dataA{t, br};
+                dd1 = squeeze(dd(:,:,:,br));
                 if nrepliA(t, br) > 2
                     for y = 1:d
                         Y = data(:,y);
@@ -129,10 +124,10 @@ for iter = 1:opts.niter
                         s = sA(y, t, br);
                         lab = (delta^2).^abs(g-1);
                         dr = bse.^2 .* lab;
-                        A = AXX(:,:,y, t, br); 
+                        A = dd1([1:(y-1) (y+1):d],[1:(y-1) (y+1):d],t); 
                         A((1:d:((d-1)^2))) = A((1:d:((d-1)^2))) + s^2./dr;
                         R = chol(A);
-                        z = (R')\AXY(:, y, t, br);
+                        z = (R')\(X'*Y);
                         bnulltmp = R\(s.*randn(d-1, 1)+z);
                         bnulltmp = [bnulltmp(1:(y-1)); 0 ;bnulltmp(y:(d-1))];
                         bAnull(y, :, t, br)= bnulltmp;
@@ -145,6 +140,7 @@ for iter = 1:opts.niter
         for t = 1:nt 
             for br = 1:nbr
                 data = dataA{t, br};
+                dd1 = squeeze(dd(:,:,t,br));
                 if nrepliA(t, br) > 2
                     parfor y = 1:d
                         Y = data(:,y);
@@ -154,11 +150,11 @@ for iter = 1:opts.niter
                         bse = bse([1:(y-1) (y+1):d]);
                         s = sA(y, t, br);
                         lab = (delta^2).^abs(g-1);
-                        dr = bse.^2 .* lab;
-                        A = AXX(:,:,y, t, br); 
+                        dr = bse.^2 .* lab;            
+                        A = dd1([1:(y-1) (y+1):d],[1:(y-1) (y+1):d]); 
                         A((1:d:((d-1)^2))) = A((1:d:((d-1)^2))) + s^2./dr;
                         R = chol(A);
-                        z = (R')\AXY(:, y, t, br);
+                        z = (R')\(X'*Y);
                         bnulltmp = R\(s.*randn(d-1, 1)+z);
                         bnulltmp = [bnulltmp(1:(y-1)); 0 ;bnulltmp(y:(d-1))];
                         bAnull(y, :, t, br)= bnulltmp;
@@ -180,10 +176,10 @@ for iter = 1:opts.niter
                         s = sA(y, t, br);
                         lab = (delta^2).^abs(g-1);
                         dr = bse.^2 .* lab;
-                        A = AXX(:,:,y, t, br); 
+                        A = dd([1:(y-1) (y+1):d],[1:(y-1) (y+1):d],t,br); 
                         A((1:d:((d-1)^2))) = A((1:d:((d-1)^2))) + s^2./dr;
                         R = chol(A);
-                        z = (R')\AXY(:, y, t, br);
+                        z = (R')\(X'*Y);
                         bAnulltmp = R\(s.*randn(d-1, 1)+z);
                         bAnull(y, [1:(y-1) (y+1):d], t, br)= bAnulltmp;
                         scaleA(y, t, br) = 1/(nu*lambda/2 + sum(( Y - X*bAnulltmp ).^2)/2);
@@ -208,7 +204,7 @@ for iter = 1:opts.niter
     if opts.fixetaT~=1
       etaT = getetaTmhst(tmp.xs, tmp.xt, tmp.y, eta1, etaS, etaT);
     end
-    if iter >= opts.br && mod(iter, 5)==0
+    if iter >= opts.br 
       count = count + 1;
       gAsum = gAsum + gA;
       etaSA = [etaSA etaS];

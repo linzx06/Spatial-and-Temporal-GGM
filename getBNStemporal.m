@@ -1,6 +1,6 @@
-function [ obj ] = getBNStemporal( dataA, l, delta, gA, opts)
+function [ obj ] = getBNStemporal( dataA, l, delta, gA, numpool, opts)
 %%
-if nargin < 5
+if nargin < 6
     opts = [];
     opts.niter = 20000;
     opts.br = 10000;
@@ -36,18 +36,12 @@ if gA(1) == -1
     end
 end
 %%
-AXX = zeros(d-1, d-1, d, nsam);
-AXY = zeros(d-1, d, nsam);
+dd = zeros(d, d, nsam);
 nrepliA = zeros(nsam, 1);
 for sam = 1:nsam 
     data = dataA{sam};
     [nrepliA(sam), ~] = size(data);
-    for y = 1:d
-        Y = data(:,y);
-        X = data(:,[1:(y-1) (y+1):d]);
-        AXX(:,:,y, sam) = X'*X;
-        AXY(:,y, sam) = X'*Y;
-    end
+    dd(:,:,sam) = data'*data;
 end
 %%
 nu = opts.nu; lambda = opts.lambda;
@@ -60,6 +54,9 @@ sA = ones(d, nsam);
 shapeA = repmat((nu+nrepliA)/2, 1, d);
 shapeA = permute(shapeA, [2, 1]);
 scaleA = sA;
+if opts.parallel_graph == 1 || opts.parallel_line == 1
+    parpool(numpool);
+end
 for iter = 1:opts.niter
     if mod(iter, 200)==0
         fprintf('  completed %d%% \r',round(iter/opts.niter*100));
@@ -76,10 +73,10 @@ for iter = 1:opts.niter
                 s = sA(y, sam);
                 lab = (delta^2).^abs(g-1);
                 dr = bse.^2 .* lab;
-                A = AXX(:,:,y, sam); 
+                A = dd([1:(y-1) (y+1):d],[1:(y-1) (y+1):d],sam); 
                 A((1:d:((d-1)^2))) = A((1:d:((d-1)^2))) + s^2./dr;
                 R = chol(A);
-                z = (R')\AXY(:, y, sam);
+                z = (R')\(X'*Y);
                 bAnulltmp = R\(s.*randn(d-1, 1)+z);
                 bAnull(y, [1:(y-1) (y+1):d], sam)= bAnulltmp;
                 scaleA(y, sam) = 1/(nu*lambda/2 + sum(( Y - X*bAnulltmp ).^2)/2);
@@ -88,20 +85,22 @@ for iter = 1:opts.niter
     elseif opts.parallel_graph == 1 && opts.parallel_line == 0
         parfor sam = 1:nsam 
             data = dataA{sam};
+            dd1 = dd(:,:,sam);
             gAtmp = gA(:, :, sam);
             bseAtmp = bseA(:,:, sam);
             bAnulltmp = zeros(d, d);
             for y = 1:d
+                X = data(:,[1:(y-1) (y+1):d]); 
                 Y = data(:,y);
                 g = gAtmp(y, [1:(y-1) (y+1):d]);
                 bse = bseAtmp(y,[1:(y-1) (y+1):d]);
                 s = sA(y, sam);
                 lab = (delta^2).^abs(g-1);
                 dr = bse.^2 .* lab;
-                A = AXX(:,:,y, sam); 
+                A = dd1([1:(y-1) (y+1):d],[1:(y-1) (y+1):d]); 
                 A((1:d:((d-1)^2))) = A((1:d:((d-1)^2))) + s^2./dr;
                 R = chol(A);
-                z = (R')\AXY(:, y, sam);
+                z = (R')\(X'*Y);
                 bAnulltmp(y, [1:(y-1) (y+1):d])= R\(s.*randn(d-1, 1)+z);
                 scaleA(y, sam) = 1/(nu*lambda/2 + sum(( Y - data*(bAnulltmp(y, :))' ).^2)/2);
             end
@@ -110,10 +109,12 @@ for iter = 1:opts.niter
     elseif opts.parallel_graph == 0 && opts.parallel_line == 1
         for sam = 1:nsam 
             data = dataA{sam};
+            dd1 = dd(:,:,sam);
             gAtmp = gA(:, :, sam);
             bseAtmp = bseA(:,:, sam);
             bAnulltmp = zeros(d, d);
             parfor y = 1:d
+                X = data(:,[1:(y-1) (y+1):d]); 
                 Y = data(:,y);
                 g = gAtmp(y, :);
                 g = g([1:(y-1) (y+1):d]);
@@ -122,20 +123,20 @@ for iter = 1:opts.niter
                 s = sA(y, sam);
                 lab = (delta^2).^abs(g-1);
                 dr = bse.^2 .* lab;
-                A = AXX(:,:,y, sam); 
+                A = dd1([1:(y-1) (y+1):d],[1:(y-1) (y+1):d]); 
                 A((1:d:((d-1)^2))) = A((1:d:((d-1)^2))) + s^2./dr;
                 R = chol(A);
-                z = (R')\AXY(:, y, sam);
+                z = (R')\(X'*Y);
                 bnulltmp = R\(s.*randn(d-1, 1)+z);
                 bnulltmp = [bnulltmp(1:(y-1)); 0 ;bnulltmp(y:(d-1))];
                 bAnulltmp(y, :) = bnulltmp;
-                scaleA(y, sam) = 1/(nu*lambda/2 + sum(( Y - data*(bAnulltmp(y, :))' ).^2)/2);
+                scaleA(y, sam) = 1/(nu*lambda/2 + sum(( Y - data*bnulltmp ).^2)/2);
             end
             bAnull(:, :, sam) = bAnulltmp;
         end
     else
         error('parallel_graph and parallel_line cannot be both one');
-    end
+    end    
     
     %update sigma
     sA = 1./sqrt(gamrnd(shapeA, scaleA));
@@ -148,8 +149,7 @@ for iter = 1:opts.niter
     if opts.fixetaT~=1
       etaT = getetaTmh(tmp.xt, tmp.y, eta1, etaT);
     end
-
-    if iter >= opts.br && mod(iter, 5)==0
+    if iter >= opts.br 
       count = count + 1;
       gAsum = gAsum + gA;
       etaTA = [etaTA etaT];

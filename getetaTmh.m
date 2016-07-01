@@ -2,7 +2,7 @@ function [ obj ] = getetaTmh(xt, y, eta1, etaT, opts)
 %%
 if nargin < 5
     opts = [];
-    opts.step = 0.05;
+    opts.step = 0.4;
     opts.low = 0;
     opts.high = 2;
 end

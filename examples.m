@@ -1,3 +1,4 @@
+cd /Users/zhixianglin/Documents/Graphical' Models'/revision_code/release_code/
 %%Simulate single graph
 nrepli = 150; %number of replicates
 p = 100; %number of nodes
@@ -13,36 +14,23 @@ sim.omega %the precision matrix
 sim.sup %support of the precision matrix
 %%
 %%Run the Bayesian Neigborhood Selection (BNS) method on single graph
-opts = [];
+%opts is optional
+opts = []; 
 opts.niter = 20000; %total number of iterations
 opts.br = 10000; %burn-in
 opts.nu = 0; %the inverse gamma prior on sigma
 opts.lambda = 0; %the inverse gamma prior on sigma
-opts.parallel = 0; %Use parallel computing to update each line of beta? 0: no; 1: yes.
 %see manuscript for how to specify q, l and delta
 q = 0.1;
 l = 0.1;
 delta = 0.1;
-result1 = getBNS( sim.data, q, l, delta, opts );
+parallel = 0; %Use parallel computing to update each line of beta? 0: no; 1: yes.
+numpool = 4; %How many cores/parallel tasks? Ignored if parallel=0.
+result1 = getBNS( sim.data, q, l, delta, parallel, numpool, opts );
 result1.tau1 %tau_1
 result1.tau0 %tau_0
 result1.postprob %posterior probability of the edges
 
-%parallel computing
-opts = [];
-opts.niter = 20000; %total number of iterations
-opts.br = 10000; %burn-in
-opts.nu = 0; %the inverse gamma prior on sigma
-opts.lambda = 0; %the inverse gamma prior on sigma
-opts.parallel = 1;
-%Use parpool(# of cores) to enable parallele computing
-parpool(4); %4 cores are used
-%see manuscript for how to specify q, l and delta
-q = 0.1;
-l = 0.1;
-delta = 0.1;
-result2 = getBNS( sim.data, q, l, delta, opts );
-%%
 %%Simulate multiple graphs
 nrepli = 150; %number of replicates
 p = 100; %number of nodes
@@ -67,7 +55,9 @@ opts.niter = 20000; %total number of iterations
 opts.br = 10000; %burn-in
 opts.nu = 0; %the inverse gamma prior on sigma
 opts.lambda = 0; %the inverse gamma prior on sigma
-opts.eta1 = -0.5; %the value for eta_1
+opts.eta1 = -0.5; 
+%the value for eta_1, when number of replicates << number of variables, 
+%eta_1 needs to be smaller to avoid the numerical issue
 opts.etaS = 0; %the initial value of eta_S
 opts.fixetaS = 0; %fix or update eta_s by Metropolis-Hastings algorithm
 opts.parallel_graph = 0; %Use parallel computing when updating multiple graphs? 0: no; 1: yes.
@@ -77,11 +67,14 @@ opts.parallel_line = 0; %Use parallel computing when updating each line of beta?
 l = 0.1;
 delta = 0.1;
 gA = -1; %the initial latent states to sample from, -1 means random
-result = getBNSspatial( sim.dataA, l, delta, gA, opts);
-result.tau1 %tau_1
-result.tau0 %tau_0
-result.postprob %posterior probability of the edges
-result.etaSA %trace of etaS
+numpool = 4; 
+%How many cores/parallel tasks? Ignored if both opts.parallel_graph and
+%opts.parallel_line=0.
+result2 = getBNSspatial( sim.dataA, l, delta, gA, numpool, opts);
+result2.tau1 %tau_1
+result2.tau0 %tau_0
+result2.postprob %posterior probability of the edges
+result2.etaSA %trace of etaS
 %%
 %%Simulate multiple graphs with temporal dependency, the graph structure
 %%evolves over time by hidden markov model
@@ -109,6 +102,8 @@ opts.br = 10000; %burn-in
 opts.nu = 0; %the inverse gamma prior on sigma
 opts.lambda = 0; %the inverse gamma prior on sigma
 opts.eta1 = -0.5; %the value for eta_1
+%the value for eta_1, when number of replicates << number of variables, 
+%eta_1 needs to be smaller to avoid the numerical issue
 opts.etaT = 0; %the initial value of eta_T
 opts.fixetaT = 0; %fix or update eta_T by Metropolis-Hastings algorithm
 opts.parallel_graph = 0; %Use parallel computing when updating multiple graphs? 0: no; 1: yes.
@@ -118,11 +113,14 @@ opts.parallel_line = 0; %Use parallel computing when updating each line of beta?
 l = 0.1;
 delta = 0.1;
 gA = -1; %the initial latent states to sample from, -1 means random
-result = getBNStemporal( sim.dataA, l, delta, gA, opts);
-result.tau1 %tau_1
-result.tau0 %tau_0
-result.postprob %posterior probability of the edges
-result.etaSA %trace of etaS
+numpool = 4; 
+%How many cores/parallel tasks? Ignored if both opts.parallel_graph and
+%opts.parallel_line=0.
+result3 = getBNStemporal( sim.dataA, l, delta, gA, numpool, opts);
+result3.tau1 %tau_1
+result3.tau0 %tau_0
+result3.postprob %posterior probability of the edges
+result3.etaTA %trace of etaT
 
 %%
 %%Simulate multiple graphs with temporal and spatial dependency 
@@ -152,6 +150,8 @@ opts.br = 10000; %burn-in
 opts.nu = 0; %the inverse gamma prior on sigma
 opts.lambda = 0; %the inverse gamma prior on sigma
 opts.eta1 = -0.5; %the value for eta_1
+%the value for eta_1, when number of replicates << number of variables, 
+%eta_1 needs to be smaller to avoid the numerical issue
 opts.etaS = 0; %the initial value of eta_S
 opts.etaT = 0; %the initial value of eta_T
 opts.fixetaT = 0; %fix or update eta_T by Metropolis-Hastings algorithm
@@ -164,9 +164,12 @@ opts.parallel_line = 0; %Use parallel computing when updating each line of beta?
 l = 0.1;
 delta = 0.1;
 gA = -1; %the initial latent states to sample from, -1 means random
-result = getBNSst( sim.dataA, l, delta, gA, opts);
-result.tau1 %tau_1
-result.tau0 %tau_0
-result.postprob %posterior probability of the edges
-result.etaSA %trace of etaS
-result.etaTA %trace of etaT
+numpool = 4; 
+%How many cores/parallel tasks? Ignored if opts.parallel_t,opts.parallel_s
+%and opts.parallel_line are all 0
+result4 = getBNSst( sim.dataA, l, delta, gA, numpool, opts);
+result4.tau1 %tau_1
+result4.tau0 %tau_0
+result4.postprob %posterior probability of the edges
+result4.etaSA %trace of etaS
+result4.etaTA %trace of etaT

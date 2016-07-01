@@ -1,12 +1,11 @@
-function [ obj ] = getBNS( data, q, l, delta, opts )
+function [ obj ] = getBNS( data, q, l, delta, parallel, numpool, opts )
 %%
-if nargin < 5
+if nargin < 7
     opts = [];
     opts.niter = 20000;
     opts.br = 10000;
     opts.nu = 0;
     opts.lambda = 0;
-    opts.parallel = 0;
 end
 
 [nrepli, d] = size(data);
@@ -22,16 +21,9 @@ gA = ones(d);
 gAsum = zeros(d);
 sA = ones(1, d);
 count = 0;
-AXX = zeros(d-1, d-1, d);
-AXY = zeros(d-1, d);
-for y = 1:d
-    Y = data(:,y);
-    X = data(:,[1:(y-1) (y+1):d]);
-    AXX(:,:,y) = X'*X;
-    AXY(:,y) = X'*Y;
-end;
+dd = data'*data;
 
-if opts.parallel == 0
+if parallel == 0
     for iter = 1:opts.niter
         if mod(iter, 200)==0
             fprintf('  completed %d%% \r',round(iter/opts.niter*100));
@@ -46,10 +38,10 @@ if opts.parallel == 0
             %update beta
             lab = (delta^2).^abs(g-1);
             dr = bse.^2 .* lab;
-            A = AXX(:,:,y); 
+            A = dd([1:(y-1) (y+1):d],[1:(y-1) (y+1):d]); 
             A((1:d:((d-1)^2))) = A((1:d:((d-1)^2))) + s^2./dr;
             R = chol(A);
-            z = (R')\AXY(:,y);
+            z = (R')\(X'*Y);
             bnulltmp = R\(s.*randn(d-1, 1)+z);
             bnull(y, [1:(y-1) (y+1):d]) = bnulltmp;
             %update sigma
@@ -67,6 +59,7 @@ if opts.parallel == 0
         end
     end
 else
+   parpool(numpool);
    nu = opts.nu; lambda = opts.lambda;
    for iter = 1:opts.niter
         if mod(iter, 200)==0
@@ -74,6 +67,7 @@ else
         end
         bnull = zeros(d);
         parfor y = 1:d
+            X = data(:,[1:(y-1) (y+1):d]); 
             Y = data(:,y);
             g = gA(y, :);
             g = g([1:(y-1) (y+1):d]);
@@ -83,15 +77,15 @@ else
             %update beta
             lab = (delta^2).^abs(g-1);
             dr = bse.^2 .* lab;
-            A = AXX(:,:,y); 
+            A = dd([1:(y-1) (y+1):d],[1:(y-1) (y+1):d]); 
             A((1:d:((d-1)^2))) = A((1:d:((d-1)^2))) + s^2./dr;
             R = chol(A);
-            z = (R')\AXY(:,y);
+            z = (R')\(X'*Y);
             bnulltmp = R\(s.*randn(d-1, 1)+z);
             bnulltmp = [bnulltmp(1:(y-1)); 0 ;bnulltmp(y:(d-1))];
             bnull(:, y) = bnulltmp;
             %update sigma       
-            sA(y) = 1/sqrt(gamrnd((nu+nrepli)/2, 1/(nu*lambda/2 + sum(( Y - data*bnulltmp ).^2)/2), 1));              
+            sA(y) = 1/sqrt(gamrnd((nu+nrepli)/2, 1/(nu*lambda/2 + sum(( Y - data*bnulltmp ).^2)/2), 1));        
         end
         %update latent state
         p1 = normpdf(bnull, 0, bseA).*normpdf(bnull', 0, bseA')*q;
@@ -99,7 +93,7 @@ else
         gA = (p1./(p1 + p0)) >= rand(d);
         gA = gA - tril(gA);
         gA = gA + gA';
-        if iter >= opts.br && mod(iter, 5)==0
+        if iter >= opts.br
             count = count + 1;
             gAsum = gAsum + gA;
         end
