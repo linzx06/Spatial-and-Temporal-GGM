@@ -1,0 +1,2 @@
+MATLAB Source code for the manuscript "On Joint Estimation of Gaussian Graphical Models for Spatial and Temporal Data". The code for simulating datasets are included. Please refer to 'examples.m' for details on the implementation.
+By Zhixiang Lin
